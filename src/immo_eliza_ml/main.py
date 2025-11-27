@@ -55,8 +55,8 @@ def main():
     # BINARY = {"equipped_kitchen", "furnished", "open_fire", 
     #           "terrace", "garden", "swimming_pool"}
 
-
-    prep = FeaturePreprocessor(features={"number_of_rooms", "living_area", "number_of_facades"})
+    prep = FeaturePreprocessor()
+    # prep = FeaturePreprocessor(features={"number_of_rooms", "living_area", "number_of_facades"})
     prep.info()
     
     X_train, y_train = prep.fit_transform(train_df)
