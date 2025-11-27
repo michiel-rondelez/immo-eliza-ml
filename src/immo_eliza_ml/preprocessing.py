@@ -1,227 +1,150 @@
 import pandas as pd
 import numpy as np
+import joblib
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-import joblib
 
 
 def get_region(postal_code):
     try:
         pc = int(postal_code)
-        ranges = [
-            ((1000, 1299), 'Brussels'),
-            ((1300, 1499), 'Walloon_Brabant'),
-            ((1500, 1999), 'Flemish_Brabant'),
-            ((2000, 2999), 'Antwerp'),
-            ((3000, 3499), 'Flemish_Brabant'),
-            ((3500, 3999), 'Limburg'),
-            ((4000, 4999), 'Liege'),
-            ((5000, 5999), 'Namur'),
-            ((6000, 6599), 'Hainaut'),
-            ((6600, 6999), 'Luxembourg'),
-            ((7000, 7999), 'Hainaut'),
-            ((8000, 8999), 'West_Flanders'),
-            ((9000, 9999), 'East_Flanders')
-        ]
-        for (low, high), region in ranges:
+        regions = {
+            (1000, 1299): 'Brussels', (1300, 1499): 'Walloon_Brabant',
+            (1500, 1999): 'Flemish_Brabant', (2000, 2999): 'Antwerp',
+            (3000, 3499): 'Flemish_Brabant', (3500, 3999): 'Limburg',
+            (4000, 4999): 'Liege', (5000, 5999): 'Namur',
+            (6000, 6599): 'Hainaut', (6600, 6999): 'Luxembourg',
+            (7000, 7999): 'Hainaut', (8000, 8999): 'West_Flanders',
+            (9000, 9999): 'East_Flanders',
+        }
+        for (low, high), region in regions.items():
             if low <= pc <= high:
                 return region
-        return "Unknown"
     except:
-        return "Unknown"
+        pass
+    return "Unknown"
 
 
-
-# ============================================================
-#   HIGH-PERFORMANCE PREPROCESSOR FOR YOUR REAL DATASET
-# ============================================================
 class FeaturePreprocessor:
+    """
+    Auto-detects feature types and applies correct pipeline.
+    
+    Usage:
+        # Select features - pipeline auto-assigned
+        prep = FeaturePreprocessor(
+            features=["living_area", "region", "swimming_pool"],
+            target="price"
+        )
+        
+        # All features (default)
+        prep = FeaturePreprocessor()
+    """
 
-    NUMERIC_FEATURES = [
-        # raw
-        "number_of_rooms",
-        "living_area",
-        "number_of_facades",
-        "garden_surface",
-        "terrace_surface",
+    # Feature type definitions
+    NUMERIC = {
+        "number_of_rooms", "living_area", "number_of_facades",
+        "garden_surface", "terrace_surface", "postal_code",
+        "total_outdoor", "outdoor_ratio", "luxury_score",
+        "area_log", "area_per_room",
+    }
 
-        # engineered numeric
-        "total_outdoor_surface",
-        "outdoor_ratio",
-        "luxury_score",
-        "price_per_sqm",
+    CATEGORICAL = {"subtype_of_property", "state_of_building", "region"}
 
-        # location-based numeric
-        "postal_median_price",
-        "postal_price_per_sqm",
-        "postal_rank",
+    BINARY = {"equipped_kitchen", "furnished", "open_fire", 
+              "terrace", "garden", "swimming_pool"}
 
-        # log transforms
-        "area_log",
-        "garden_log",
-        "terrace_log",
-        "outdoor_log",
+    ALL_FEATURES = NUMERIC | CATEGORICAL | BINARY
 
-        # interaction features
-        "area_per_room",
-        "garden_ratio",
-    ]
+    def __init__(self, features=None, target="price", log_target=True):
+        self.features = set(features) if features else self.ALL_FEATURES
+        self.target = target
+        self.log_target = log_target
+        self.pipeline = None
 
-    CATEGORICAL_FEATURES = [
-        "type_of_property",
-        "subtype_of_property",
-        "state_of_building",
-        "region",
-        "locality_name",
-        "postal_code",
-    ]
+        # Auto-assign features to correct type
+        self.numeric = list(self.features & self.NUMERIC)
+        self.categorical = list(self.features & self.CATEGORICAL)
+        self.binary = list(self.features & self.BINARY)
 
-    BINARY_FEATURES = [
-        "equipped_kitchen",
-        "furnished",
-        "open_fire",
-        "terrace",
-        "garden",
-        "swimming_pool",
-    ]
-
-    TARGET = "price"
-
-
-    def __init__(self):
-        self.preprocessor = None
-        self.postal_medians = None
-        self.postal_sqm_medians = None
-        self.feature_names = None
-        self.is_fitted = False
-
-
-    def _add_engineered_features(self, df):
-        '''Adds the engineered features to the dataframe.'''
+    def _engineer(self, df):
+        """Add engineered features."""
         df = df.copy()
 
-        # ---------------------
-        # Location Features
-        # ---------------------
-        df["region"] = df.postal_code.apply(get_region)
-
-        df["price_per_sqm"] = df["price"] / df["living_area"].replace(0, 1)
-
-        df["postal_median_price"] = df["postal_code"].map(self.postal_medians)
-        df["postal_price_per_sqm"] = df["postal_code"].map(self.postal_sqm_medians)
-
-        df["postal_rank"] = df["postal_median_price"].rank(method="dense")
-
-        # ---------------------
-        # Outdoor & luxury
-        # ---------------------
-        df["total_outdoor_surface"] = (
-            df.garden_surface.fillna(0) + df.terrace_surface.fillna(0)
+        df["region"] = df["postal_code"].apply(get_region)
+        
+        df["total_outdoor"] = (
+            df["garden_surface"].fillna(0) + df["terrace_surface"].fillna(0)
         )
-
-        total = df.living_area + df.total_outdoor_surface.replace(0, 1)
-        df["outdoor_ratio"] = df.total_outdoor_surface / total.replace(0, 1)
-
+        df["outdoor_ratio"] = df["total_outdoor"] / (df["living_area"] + 1)
+        
+        df["area_log"] = np.log1p(df["living_area"])
+        df["area_per_room"] = df["living_area"] / df["number_of_rooms"].replace(0, 1)
+        
         df["luxury_score"] = (
-            df.equipped_kitchen +
-            df.furnished +
-            df.open_fire +
-            2 * df.swimming_pool +
-            (df.garden_surface > 0).astype(int) +
-            (df.terrace_surface > 0).astype(int)
+            df["equipped_kitchen"].fillna(0) +
+            df["furnished"].fillna(0) +
+            df["open_fire"].fillna(0) +
+            df["swimming_pool"].fillna(0) * 2
         )
-
-        # ---------------------
-        # Log transforms
-        # ---------------------
-        df["area_log"] = np.log1p(df.living_area)
-        df["garden_log"] = np.log1p(df.garden_surface)
-        df["terrace_log"] = np.log1p(df.terrace_surface)
-        df["outdoor_log"] = np.log1p(df.total_outdoor_surface)
-
-        # ---------------------
-        # Interaction features
-        # ---------------------
-        df["area_per_room"] = df.living_area / df.number_of_rooms.replace(0, 1)
-        df["garden_ratio"] = df.garden_surface / df.living_area.replace(0, 1)
 
         return df
 
+    def _build_pipeline(self):
+        """Build pipeline based on detected feature types."""
+        transformers = []
 
-    def _create_pipeline(self):
-        '''Creates the preprocessing pipeline.'''
-        numeric_pipeline = Pipeline([
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-        ])
+        if self.numeric:
+            transformers.append(("num", Pipeline([
+                ("impute", SimpleImputer(strategy="median")),
+                ("scale", StandardScaler()),
+            ]), self.numeric))
 
-        categorical_pipeline = Pipeline([
-            ("imputer", SimpleImputer(strategy="constant", fill_value="Unknown")),
-            ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
-        ])
+        if self.categorical:
+            transformers.append(("cat", Pipeline([
+                ("impute", SimpleImputer(strategy="constant", fill_value="Unknown")),
+                ("encode", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+            ]), self.categorical))
 
-        binary_pipeline = Pipeline([
-            ("imputer", SimpleImputer(strategy="constant", fill_value=0))
-        ])
+        if self.binary:
+            transformers.append(("bin", 
+                SimpleImputer(strategy="constant", fill_value=0), 
+                self.binary))
 
-        return ColumnTransformer([
-            ("numeric", numeric_pipeline, self.NUMERIC_FEATURES),
-            ("categorical", categorical_pipeline, self.CATEGORICAL_FEATURES),
-            ("binary", binary_pipeline, self.BINARY_FEATURES),
-        ])
-
+        return ColumnTransformer(transformers)
 
     def fit_transform(self, df):
-        ''' Fits the preprocessor and transforms the data. '''
+        """Fit and transform training data."""
+        X = self._engineer(df)
+        y = np.log1p(df[self.target]) if self.log_target else df[self.target]
 
-        self.postal_medians = df.groupby("postal_code")["price"].median()
-        self.postal_sqm_medians = (df["price"] / df["living_area"]).groupby(df["postal_code"]).median()
+        self.pipeline = self._build_pipeline()
+        return self.pipeline.fit_transform(X), y
 
-        X = self._add_engineered_features(df)
-        y = np.log1p(df["price"])  # log-transform target
-
-        self.preprocessor = self._create_pipeline()
-        X_proc = self.preprocessor.fit_transform(X)
-
-        self.feature_names = self._extract_feature_names()
-        self.is_fitted = True
-
-        return X_proc, y
-
-
-    # ============================================================
-    #   TRANSFORM NEW DATA
-    # ============================================================
     def transform(self, df):
-        '''Transforms new data using the fitted preprocessor.'''
-        X = self._add_engineered_features(df)
-        return self.preprocessor.transform(X)
+        """Transform new data."""
+        X = self._engineer(df)
+        return self.pipeline.transform(X)
 
+    def get_target(self, df):
+        """Get target variable with same transform as fit_transform."""
+        return np.log1p(df[self.target]) if self.log_target else df[self.target]
 
-    # ============================================================
-    #   FEATURE NAMES
-    # ============================================================
-    def _extract_feature_names(self):
-        '''Extracts feature names after preprocessing.'''
-        names = list(self.NUMERIC_FEATURES)
+    @property
+    def feature_names(self):
+        return list(self.pipeline.get_feature_names_out())
 
-        enc = self.preprocessor.named_transformers_["categorical"].named_steps["encoder"]
-        names.extend(enc.get_feature_names_out(self.CATEGORICAL_FEATURES))
-
-        names.extend(self.BINARY_FEATURES)
-        return names
+    def info(self):
+        """Show which features go to which pipeline."""
+        print(f"Numeric ({len(self.numeric)}):     {self.numeric}")
+        print(f"Categorical ({len(self.categorical)}): {self.categorical}")
+        print(f"Binary ({len(self.binary)}):      {self.binary}")
+        print(f"Target:            {self.target} (log={self.log_target})")
 
     def save(self, path):
-        '''Saves the preprocessor to a file.'''
-        joblib.dump(
-            {
-                "preprocessor": self.preprocessor,
-                "postal_medians": self.postal_medians,
-                "postal_sqm_medians": self.postal_sqm_medians,
-                "feature_names": self.feature_names,
-                "is_fitted": self.is_fitted,
-            },
-            path,
-        )
+        joblib.dump(self, path)
+
+    @classmethod
+    def load(cls, path):
+        return joblib.load(path)
