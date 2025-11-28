@@ -1,303 +1,298 @@
-# predictions.py
+"""
+Predict class for Belgian real estate price prediction.
+"""
 
 import os
 import joblib
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
 
-class Predictions:
-    """Loads and visualizes stored model predictions."""
+class Predict:
+    """Makes price predictions for Belgian real estate."""
 
-    def __init__(self):
-        self.predictions = {}
+    # Default values for missing features
+    FEATURE_DEFAULTS = {
+        "postal_code": 1000,
+        "living_area": 100,
+        "number_of_rooms": 2,
+        "number_of_facades": 2,
+        "garden_surface": 0,
+        "terrace_surface": 0,
+        "equipped_kitchen": 0,
+        "furnished": 0,
+        "open_fire": 0,
+        "terrace": 0,
+        "garden": 0,
+        "swimming_pool": 0,
+        "state_of_building": "good",
+        "subtype_of_property": "house",
+    }
+
+    def __init__(self, models_folder="models", preprocessor_path="models/preprocessor.pkl"):
         self.models = {}
-        self.results = None
-        self.y_train = None
-        self.y_test = None
+        self.preprocessor = None
+        self.models_folder = models_folder
+        self.preprocessor_path = preprocessor_path
+        self.default_model = "XGBoost"
 
-    def load_all(self, models_folder="models", predictions_folder="predictions", data_folder="data"):
-        """Load models, predictions, and y values."""
-        
-        # Load y values
-        y_path = f"{data_folder}/y_values.pkl"
-        if os.path.exists(y_path):
-            y_data = joblib.load(y_path)
-            self.y_train = y_data["y_train"]
-            self.y_test = y_data["y_test"]
-            print(f"Loaded y values from {y_path}")
+    def _fill_missing_features(self, property_dict):
+        """Fill missing features with defaults."""
+        filled = self.FEATURE_DEFAULTS.copy()
+        filled.update(property_dict)
+        return filled
+
+    def load(self):
+        """Load preprocessor and all trained models."""
+        # Load preprocessor
+        if os.path.exists(self.preprocessor_path):
+            self.preprocessor = joblib.load(self.preprocessor_path)
+            print(f"Loaded preprocessor from {self.preprocessor_path}")
         else:
-            print(f"Warning: {y_path} not found")
+            print(f"Warning: Preprocessor not found at {self.preprocessor_path}")
 
         # Load models
         model_names = ["Linear Regression", "Decision Tree", "Random Forest", "SVR", "XGBoost"]
         for name in model_names:
-            path = f"{models_folder}/{name.lower().replace(' ', '_')}.pkl"
+            path = f"{self.models_folder}/{name.lower().replace(' ', '_')}.pkl"
             if os.path.exists(path):
                 self.models[name] = joblib.load(path)
                 print(f"Loaded model: {name}")
 
-        # Load results
-        results_path = f"{models_folder}/results.csv"
-        if os.path.exists(results_path):
-            self.results = pd.read_csv(results_path)
-            print(f"Loaded results from {results_path}")
+        print(f"\nLoaded {len(self.models)} models")
+        return self
 
-        # Load predictions
-        for name in model_names:
-            path = f"{predictions_folder}/{name.lower().replace(' ', '_')}.pkl"
-            if os.path.exists(path):
-                self.predictions[name] = joblib.load(path)
-                print(f"Loaded predictions: {name}")
-
-        print("\nAll data loaded!")
-
-    def summary(self):
-        """Print results summary."""
-        if self.results is None:
-            print("No results loaded")
-            return
-
-        print("\n" + "=" * 60)
-        print("MODEL COMPARISON")
-        print("=" * 60)
-
-        baseline = self.results[self.results["model"] == "Linear Regression"].iloc[0]
-        best = self.results.loc[self.results["test_r2"].idxmax()]
-
-        print(f"\nBaseline (Linear Regression): R² = {baseline['test_r2']:.4f}")
-        print(f"Best ({best['model']}): R² = {best['test_r2']:.4f}")
-        print(f"Difference: +{best['test_r2'] - baseline['test_r2']:.4f}")
-
-        print("\n" + "-" * 60)
-        print(self.results[["model", "train_r2", "test_r2", "test_rmse", "test_mae"]].to_string(index=False))
-        print("-" * 60)
-
-    # ========== ITERATION METHODS ==========
-
-    def iterate_predictions(self, dataset="test"):
-        """Iterate over all predictions."""
-        for name, preds in self.predictions.items():
-            yield name, preds[dataset]
-
-    def iterate_with_actual(self, dataset="test"):
-        """Iterate over predictions with actual values."""
-        y_actual = self.y_test if dataset == "test" else self.y_train
-        for name, preds in self.predictions.items():
-            yield name, preds[dataset], y_actual
-
-    def iterate_with_errors(self, dataset="test"):
-        """Iterate over predictions with errors."""
-        y_actual = self.y_test if dataset == "test" else self.y_train
-        for name, preds in self.predictions.items():
-            errors = y_actual - preds[dataset]
-            yield name, preds[dataset], y_actual, errors
-
-    # ========== VISUALIZATION METHODS ==========
-
-    def plot_all(self, folder="plots"):
-        """Create all visualizations."""
-        os.makedirs(folder, exist_ok=True)
+    def predict_single(self, property_dict, model_name=None):
+        """
+        Predict price for a single property.
         
-        self.plot_actual_vs_predicted(folder)
-        self.plot_residuals(folder)
-        self.plot_error_distribution(folder)
-        self.plot_model_comparison(folder)
-        self.plot_individual_models(folder)
+        Args:
+            property_dict: Dictionary with property features
+            model_name: Model to use (default: XGBoost)
+            
+        Returns:
+            Predicted price in euros
+        """
+        model_name = model_name or self.default_model
         
-        print(f"\nAll plots saved to {folder}/")
+        if model_name not in self.models:
+            raise ValueError(f"Model '{model_name}' not loaded. Available: {list(self.models.keys())}")
 
-    def plot_actual_vs_predicted(self, folder="plots"):
-        """Plot actual vs predicted for all models."""
-        os.makedirs(folder, exist_ok=True)
-        n_models = len(self.predictions)
+        # Fill missing features with defaults
+        filled_dict = self._fill_missing_features(property_dict)
         
-        fig, axes = plt.subplots(2, n_models, figsize=(4 * n_models, 8))
-        fig.suptitle("Actual vs Predicted - All Models", fontsize=16, fontweight='bold')
+        # Convert to DataFrame
+        df = pd.DataFrame([filled_dict])
         
-        for i, (name, preds, y_actual, errors) in enumerate(self.iterate_with_errors("train")):
-            axes[0, i].scatter(self.y_train, preds, alpha=0.5, s=10, c='blue')
-            axes[0, i].plot([self.y_train.min(), self.y_train.max()], 
-                           [self.y_train.min(), self.y_train.max()], 'r--')
-            axes[0, i].set_title(f"{name}\n(Train)")
-            axes[0, i].set_xlabel("Actual")
-            axes[0, i].set_ylabel("Predicted")
+        # Transform features
+        if self.preprocessor:
+            X = self.preprocessor.transform(df)
+        else:
+            X = df
         
-        for i, (name, preds, y_actual, errors) in enumerate(self.iterate_with_errors("test")):
-            axes[1, i].scatter(self.y_test, preds, alpha=0.5, s=10, c='green')
-            axes[1, i].plot([self.y_test.min(), self.y_test.max()], 
-                           [self.y_test.min(), self.y_test.max()], 'r--')
-            axes[1, i].set_title(f"{name}\n(Test)")
-            axes[1, i].set_xlabel("Actual")
-            axes[1, i].set_ylabel("Predicted")
+        # Predict (log price)
+        log_price = self.models[model_name].predict(X)[0]
         
-        plt.tight_layout()
-        plt.savefig(f"{folder}/all_models_actual_vs_predicted.png", dpi=150)
-        plt.close()
-        print(f"Saved: {folder}/all_models_actual_vs_predicted.png")
+        # Convert back to actual price
+        price = np.expm1(log_price)
+        
+        return price
 
-    def plot_residuals(self, folder="plots"):
-        """Plot residuals for all models."""
-        os.makedirs(folder, exist_ok=True)
-        n_models = len(self.predictions)
+    def predict_batch(self, properties_df, model_name=None):
+        """
+        Predict prices for multiple properties.
         
-        fig, axes = plt.subplots(2, n_models, figsize=(4 * n_models, 8))
-        fig.suptitle("Residuals - All Models", fontsize=16, fontweight='bold')
+        Args:
+            properties_df: DataFrame with property features
+            model_name: Model to use (default: XGBoost)
+            
+        Returns:
+            Array of predicted prices
+        """
+        model_name = model_name or self.default_model
         
-        for i, (name, preds, y_actual, errors) in enumerate(self.iterate_with_errors("train")):
-            axes[0, i].scatter(preds, errors, alpha=0.5, s=10, c='blue')
-            axes[0, i].axhline(y=0, color='r', linestyle='--')
-            axes[0, i].set_title(f"{name}\n(Train)")
-            axes[0, i].set_xlabel("Predicted")
-            axes[0, i].set_ylabel("Residual")
-        
-        for i, (name, preds, y_actual, errors) in enumerate(self.iterate_with_errors("test")):
-            axes[1, i].scatter(preds, errors, alpha=0.5, s=10, c='green')
-            axes[1, i].axhline(y=0, color='r', linestyle='--')
-            axes[1, i].set_title(f"{name}\n(Test)")
-            axes[1, i].set_xlabel("Predicted")
-            axes[1, i].set_ylabel("Residual")
-        
-        plt.tight_layout()
-        plt.savefig(f"{folder}/all_models_residuals.png", dpi=150)
-        plt.close()
-        print(f"Saved: {folder}/all_models_residuals.png")
+        if model_name not in self.models:
+            raise ValueError(f"Model '{model_name}' not loaded. Available: {list(self.models.keys())}")
 
-    def plot_error_distribution(self, folder="plots"):
-        """Plot error distribution for all models."""
-        os.makedirs(folder, exist_ok=True)
-        n_models = len(self.predictions)
-        
-        fig, axes = plt.subplots(2, n_models, figsize=(4 * n_models, 8))
-        fig.suptitle("Error Distribution - All Models", fontsize=16, fontweight='bold')
-        
-        for i, (name, preds, y_actual, errors) in enumerate(self.iterate_with_errors("train")):
-            axes[0, i].hist(errors, bins=30, edgecolor='black', alpha=0.7, color='blue')
-            axes[0, i].axvline(x=0, color='r', linestyle='--')
-            axes[0, i].set_title(f"{name}\n(Train) μ={errors.mean():.3f}")
-            axes[0, i].set_xlabel("Error")
-            axes[0, i].set_ylabel("Frequency")
-        
-        for i, (name, preds, y_actual, errors) in enumerate(self.iterate_with_errors("test")):
-            axes[1, i].hist(errors, bins=30, edgecolor='black', alpha=0.7, color='green')
-            axes[1, i].axvline(x=0, color='r', linestyle='--')
-            axes[1, i].set_title(f"{name}\n(Test) μ={errors.mean():.3f}")
-            axes[1, i].set_xlabel("Error")
-            axes[1, i].set_ylabel("Frequency")
-        
-        plt.tight_layout()
-        plt.savefig(f"{folder}/all_models_error_distribution.png", dpi=150)
-        plt.close()
+        # Fill missing columns with defaults
+        df = properties_df.copy()
+        for col, default in self.FEATURE_DEFAULTS.items():
+            if col not in df.columns:
+                df[col] = default
 
-        print(f"Saved: {folder}/all_models_error_distribution.png")
+        # Transform features
+        if self.preprocessor:
+            X = self.preprocessor.transform(df)
+        else:
+            X = df
+        
+        # Predict and convert
+        log_prices = self.models[model_name].predict(X)
+        prices = np.expm1(log_prices)
+        
+        return prices
+
+    def predict_all_models(self, property_dict):
+        """
+        Predict price using all available models.
+        
+        Returns:
+            Dictionary with model names and predicted prices
+        """
+        results = {}
+        
+        # Fill missing features with defaults
+        filled_dict = self._fill_missing_features(property_dict)
+        
+        df = pd.DataFrame([filled_dict])
+        
+        if self.preprocessor:
+            X = self.preprocessor.transform(df)
+        else:
+            X = df
+        
+        for name, model in self.models.items():
+            log_price = model.predict(X)[0]
+            results[name] = np.expm1(log_price)
+        
+        return results
+
+    def predict_with_confidence(self, property_dict):
+        """
+        Predict price with confidence range using all models.
+        
+        Returns:
+            Dictionary with prediction, min, max, and std
+        """
+        predictions = self.predict_all_models(property_dict)
+        prices = list(predictions.values())
+        
+        return {
+            "predictions": predictions,
+            "mean": np.mean(prices),
+            "median": np.median(prices),
+            "min": np.min(prices),
+            "max": np.max(prices),
+            "std": np.std(prices),
+            "range": np.max(prices) - np.min(prices),
+        }
+
+    def display_prediction(self, property_dict, model_name=None):
+        """Pretty print prediction for a property."""
+        model_name = model_name or self.default_model
+        price = self.predict_single(property_dict, model_name)
+        
+        print("=" * 50)
+        print("🏠 PROPERTY DETAILS")
+        print("=" * 50)
+        
+        for key, value in property_dict.items():
+            label = key.replace("_", " ").title()
+            if key in ["equipped_kitchen", "furnished", "open_fire", 
+                       "terrace", "garden", "swimming_pool"]:
+                value = "Yes" if value else "No"
+            elif key in ["living_area", "garden_surface", "terrace_surface"]:
+                value = f"{value} m²"
+            print(f"  {label:<20}: {value}")
+        
+        print()
+        print("=" * 50)
+        print(f"💰 PREDICTED PRICE ({model_name}): €{price:,.0f}")
+        print("=" * 50)
+        
+        return price
+
+    def display_all_predictions(self, property_dict):
+        """Show predictions from all models."""
+        results = self.predict_with_confidence(property_dict)
+        
+        print("=" * 50)
+        print("🏠 PROPERTY DETAILS")
+        print("=" * 50)
+        
+        for key, value in property_dict.items():
+            label = key.replace("_", " ").title()
+            if key in ["equipped_kitchen", "furnished", "open_fire", 
+                       "terrace", "garden", "swimming_pool"]:
+                value = "Yes" if value else "No"
+            elif key in ["living_area", "garden_surface", "terrace_surface"]:
+                value = f"{value} m²"
+            print(f"  {label:<20}: {value}")
+        
+        print()
+        print("=" * 50)
+        print("💰 PREDICTIONS BY MODEL")
+        print("=" * 50)
+        
+        for name, price in results["predictions"].items():
+            print(f"  {name:<20}: €{price:,.0f}")
+        
+        print("-" * 50)
+        print(f"  {'Mean':<20}: €{results['mean']:,.0f}")
+        print(f"  {'Median':<20}: €{results['median']:,.0f}")
+        print(f"  {'Range':<20}: €{results['min']:,.0f} - €{results['max']:,.0f}")
+        print("=" * 50)
+        
+        return results
+
+    @staticmethod
+    def sample_property():
+        """Return a sample property dictionary."""
+        return {
+            "postal_code": 9000,
+            "living_area": 120,
+            "number_of_rooms": 3,
+            "number_of_facades": 2,
+            "equipped_kitchen": 1,
+            "furnished": 0,
+            "open_fire": 0,
+            "terrace": 1,
+            "terrace_surface": 15,
+            "garden": 1,
+            "garden_surface": 150,
+            "swimming_pool": 0,
+            "state_of_building": "good",
+            "subtype_of_property": "house",
+        }
+
+
+# ========== USAGE EXAMPLE ==========
+
+if __name__ == "__main__":
+    # Demo without saved models (uses synthetic data)
+    print("Demo mode (no saved models found)\n")
     
-    def plot_model_comparison(self, folder="plots"):
-        """Bar chart comparing model performance."""
-        os.makedirs(folder, exist_ok=True)
-        
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-        fig.suptitle("Model Comparison", fontsize=16, fontweight='bold')
-        
-        names = []
-        r2_scores = []
-        rmse_scores = []
-        mae_scores = []
-        
-        for name, preds, y_actual, errors in self.iterate_with_errors("test"):
-            names.append(name)
-            r2_scores.append(r2_score(y_actual, preds))
-            rmse_scores.append(np.sqrt(mean_squared_error(y_actual, preds)))
-            mae_scores.append(mean_absolute_error(y_actual, preds))
-        
-        colors = ['steelblue', 'coral', 'seagreen', 'gold', 'purple']
-        
-        axes[0].bar(names, r2_scores, color=colors)
-        axes[0].set_title("R² Score (higher is better)")
-        axes[0].tick_params(axis='x', rotation=45)
-        axes[0].set_ylim(min(r2_scores) - 0.05, max(r2_scores) + 0.05)
-        
-        axes[1].bar(names, rmse_scores, color=colors)
-        axes[1].set_title("RMSE (lower is better)")
-        axes[1].tick_params(axis='x', rotation=45)
-        
-        axes[2].bar(names, mae_scores, color=colors)
-        axes[2].set_title("MAE (lower is better)")
-        axes[2].tick_params(axis='x', rotation=45)
-        
-        plt.tight_layout()
-        plt.savefig(f"{folder}/model_comparison.png", dpi=150)
-        plt.close()
-        print(f"Saved: {folder}/model_comparison.png")
-
-    def plot_individual_models(self, folder="plots"):
-        """Create individual plots for each model."""
-        os.makedirs(folder, exist_ok=True)
-        
-        for name, preds, y_actual, errors in self.iterate_with_errors("test"):
-            filename = name.lower().replace(" ", "_")
-            
-            fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-            fig.suptitle(f"{name}", fontsize=16, fontweight='bold')
-            
-            # Actual vs Predicted
-            axes[0].scatter(y_actual, preds, alpha=0.5, s=10)
-            axes[0].plot([y_actual.min(), y_actual.max()], 
-                        [y_actual.min(), y_actual.max()], 'r--')
-            axes[0].set_title("Actual vs Predicted")
-            axes[0].set_xlabel("Actual")
-            axes[0].set_ylabel("Predicted")
-            
-            # Residuals
-            axes[1].scatter(preds, errors, alpha=0.5, s=10)
-            axes[1].axhline(y=0, color='r', linestyle='--')
-            axes[1].set_title("Residuals")
-            axes[1].set_xlabel("Predicted")
-            axes[1].set_ylabel("Residual")
-            
-            # Error Distribution
-            axes[2].hist(errors, bins=30, edgecolor='black', alpha=0.7)
-            axes[2].axvline(x=0, color='r', linestyle='--')
-            axes[2].set_title(f"Error Distribution (μ={errors.mean():.3f})")
-            axes[2].set_xlabel("Error")
-            axes[2].set_ylabel("Frequency")
-            
-            plt.tight_layout()
-            plt.savefig(f"{folder}/{filename}_analysis.png", dpi=150)
-            plt.close()
-            print(f"Saved: {folder}/{filename}_analysis.png")
-
+    # Create sample property
+    property_data = {
+        "postal_code": 9000,
+        "living_area": 120,
+        "number_of_rooms": 3,
+        "number_of_facades": 2,
+        "equipped_kitchen": 1,
+        "swimming_pool": 0,
+        "garden": 1,
+        "garden_surface": 150,
+    }
     
-    def get_best_model(self):
-        """Get the best performing model."""
-        best_name = None
-        best_r2 = -np.inf
-        
-        for name, preds, y_actual, errors in self.iterate_with_errors("test"):
-            r2 = r2_score(y_actual, preds)
-            if r2 > best_r2:
-                best_r2 = r2
-                best_name = name
-        
-        return best_name, best_r2
-
-    def predictions_to_dataframe(self, dataset="test"):
-        """Get all predictions as DataFrame."""
-        data = {}
-        for name, preds in self.iterate_predictions(dataset):
-            data[name] = preds
-        return pd.DataFrame(data)
-
-    def find_bad_predictions(self, model_name="XGBoost", threshold=1.0):
-        """Find predictions with error above threshold."""
-        preds = self.predictions[model_name]["test"]
-        errors = np.abs(self.y_test - preds)
-        bad_indices = np.where(errors > threshold)[0]
-        
-        return pd.DataFrame({
-            "index": bad_indices,
-            "actual": self.y_test.iloc[bad_indices] if hasattr(self.y_test, 'iloc') else self.y_test[bad_indices],
-            "predicted": preds[bad_indices],
-            "error": errors[bad_indices]
-        })
+    print("Sample property:")
+    for k, v in property_data.items():
+        print(f"  {k}: {v}")
+    
+    print("\n" + "=" * 50)
+    print("To use with your trained models:")
+    print("=" * 50)
+    print("""
+    from predict import Predict
+    
+    # Load models
+    predictor = Predict().load()
+    
+    # Predict single property
+    price = predictor.predict_single(property_data)
+    
+    # Or with display
+    predictor.display_prediction(property_data)
+    
+    # Compare all models
+    predictor.display_all_predictions(property_data)
+    """)

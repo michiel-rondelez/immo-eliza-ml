@@ -6,7 +6,8 @@ from sklearn.model_selection import train_test_split
 from immo_eliza_ml.clean import CleanData
 from immo_eliza_ml.preprocessing import FeaturePreprocessor
 from immo_eliza_ml.trainer import ModelTrainer
-from immo_eliza_ml.predict import Predictions
+from immo_eliza_ml.visuals import Visualizations
+from immo_eliza_ml.predict import Predict
 
 
 def main():
@@ -99,12 +100,42 @@ def main():
     joblib.dump({"y_train": y_train, "y_test": y_test}, "data/3_processed/y_values.pkl")
     print("Saved y values to data/3_processed/y_values.pkl")
 
+
     # ---------------------------
-    # 8. Predictions & Visualization
+    # 8. Prediction
+    # ---------------------------
+
+
+
+    # Load models
+    predictor = Predict().load()
+
+    # Define property
+    my_house = {
+        "postal_code": 9000,
+        "living_area": 120,
+        "number_of_rooms": 3,
+        "number_of_facades": 2,
+        "equipped_kitchen": 1,
+        "swimming_pool": 0,
+        "garden": 1,
+        "garden_surface": 150,
+    }
+
+    # Quick prediction
+    price = predictor.predict_single(my_house)
+
+    print("Quick price prediction:", price)
+    # Compare all models
+    predictor.display_all_predictions(my_house)
+
+
+    # ---------------------------
+    # 9. Visualization
     # ---------------------------
     print("\n=== PREDICTIONS & VISUALIZATION ===\n")
     
-    pred = Predictions()
+    pred = Visualizations()
     pred.load_all(
         models_folder="models",
         predictions_folder="predictions",
