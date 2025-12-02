@@ -127,11 +127,14 @@ class ModelTrainer:
         print(f"Saved models to {folder}/")
 
     def save_predictions_models(self, folder="predictions"):
-        """Save predictions for each model."""
+        """Save predictions for each model as JSON."""
         os.makedirs(folder, exist_ok=True)
         for name, preds in self.predictions.items():
-            path = f"{folder}/{name.lower().replace(' ', '_')}.pkl"
-            joblib.dump(preds, path)
+            path = f"{folder}/{name.lower().replace(' ', '_')}.json"
+            # Convert numpy array to list for JSON serialization
+            predictions_list = preds.tolist() if hasattr(preds, 'tolist') else list(preds)
+            with open(path, 'w') as f:
+                json.dump(predictions_list, f, indent=2)
             print(f"Saved {name} to {path}")
         print(f"\nAll predictions saved to {folder}/")
 
@@ -153,11 +156,12 @@ class ModelTrainer:
         print(f"\nAll models loaded from {folder}/")
 
     def load_predictions_models(self, folder="predictions"):
-        """Load predictions for each model."""
+        """Load predictions for each model from JSON."""
         for name in self.models.keys():
-            path = f"{folder}/{name.lower().replace(' ', '_')}.pkl"
+            path = f"{folder}/{name.lower().replace(' ', '_')}.json"
             if os.path.exists(path):
-                self.predictions[name] = joblib.load(path)
+                with open(path, 'r') as f:
+                    self.predictions[name] = np.array(json.load(f))
                 print(f"Loaded {name} from {path}")
         print(f"\nAll predictions loaded from {folder}/")
 

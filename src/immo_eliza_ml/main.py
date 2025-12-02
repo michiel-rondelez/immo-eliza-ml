@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import joblib
+import json
 import os
 from sklearn.model_selection import train_test_split
 from immo_eliza_ml.clean import CleanData
@@ -98,8 +99,13 @@ def main():
     trainer.save_predictions_models("predictions")
     
     # Save y values for later use
-    joblib.dump({"y_train": y_train, "y_test": y_test}, "data/3_processed/y_values.pkl")
-    print("Saved y values to data/3_processed/y_values.pkl")
+    y_values_data = {
+        "y_train": y_train.tolist() if hasattr(y_train, 'tolist') else list(y_train),
+        "y_test": y_test.tolist() if hasattr(y_test, 'tolist') else list(y_test)
+    }
+    with open("data/3_processed/y_values.json", 'w') as f:
+        json.dump(y_values_data, f, indent=2)
+    print("Saved y values to data/3_processed/y_values.json")
 
 
     # ---------------------------

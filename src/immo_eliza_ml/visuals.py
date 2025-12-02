@@ -2,6 +2,7 @@
 
 import os
 import joblib
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -22,11 +23,12 @@ class Visualizations:
         """Load models, predictions, and y values."""
         
         # Load y values
-        y_path = f"{data_folder}/y_values.pkl"
+        y_path = f"{data_folder}/y_values.json"
         if os.path.exists(y_path):
-            y_data = joblib.load(y_path)
-            self.y_train = y_data["y_train"]
-            self.y_test = y_data["y_test"]
+            with open(y_path, 'r') as f:
+                y_data = json.load(f)
+            self.y_train = np.array(y_data["y_train"])
+            self.y_test = np.array(y_data["y_test"])
             print(f"Loaded y values from {y_path}")
         else:
             print(f"Warning: {y_path} not found")
@@ -47,9 +49,10 @@ class Visualizations:
 
         # Load predictions
         for name in model_names:
-            path = f"{predictions_folder}/{name.lower().replace(' ', '_')}.pkl"
+            path = f"{predictions_folder}/{name.lower().replace(' ', '_')}.json"
             if os.path.exists(path):
-                self.predictions[name] = joblib.load(path)
+                with open(path, 'r') as f:
+                    self.predictions[name] = np.array(json.load(f))
                 print(f"Loaded predictions: {name}")
 
         print("\nAll data loaded!")
