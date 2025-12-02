@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import joblib
+import json
 import os
 from sklearn.model_selection import train_test_split
 from immo_eliza_ml.clean import CleanData
@@ -79,6 +80,7 @@ def main():
     # ---------------------------
     trainer.summary()
     trainer.overfitting_summary()
+    trainer.detailed_performance_report()
     
     # ---------------------------
     # 7. Save artifacts
@@ -95,11 +97,17 @@ def main():
     prep.save("models/preprocessor.json")
     trainer.save_training_models("models")  # Save fitted models as .pkl
     trainer.save_model_params_to_json("models")  # Save model parameters as .json
+    trainer.save_detailed_report_json("models")  # Save detailed performance report with parameters
     trainer.save_predictions_models("predictions")
     
     # Save y values for later use
-    joblib.dump({"y_train": y_train, "y_test": y_test}, "data/3_processed/y_values.pkl")
-    print("Saved y values to data/3_processed/y_values.pkl")
+    y_values_data = {
+        "y_train": y_train.tolist() if hasattr(y_train, 'tolist') else list(y_train),
+        "y_test": y_test.tolist() if hasattr(y_test, 'tolist') else list(y_test)
+    }
+    with open("data/3_processed/y_values.json", 'w') as f:
+        json.dump(y_values_data, f, indent=2)
+    print("Saved y values to data/3_processed/y_values.json")
 
 
     # ---------------------------

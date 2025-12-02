@@ -111,8 +111,161 @@ class ModelTrainer:
                 status = "OK ✅"
             
             print(f"{row['model']:<20} {row['train_r2']:>10.4f} {row['test_r2']:>10.4f} {gap:>10.4f} {status:>15}")
-        
+
         print("-" * 65)
+
+    def detailed_performance_report(self):
+        """Print comprehensive report with metrics and model parameters."""
+        if self.results is None:
+            print("No results available. Train models first.")
+            return
+
+        print("\n" + "=" * 80)
+        print("DETAILED MODEL PERFORMANCE REPORT")
+        print("=" * 80)
+
+        for _, row in self.results.iterrows():
+            model_name = row["model"]
+            model = self.models[model_name]
+
+            print(f"\n{'─' * 80}")
+            print(f"Model: {model_name} ({type(model).__name__})")
+            print(f"{'─' * 80}")
+
+            # Performance Metrics
+            print("\n📊 Performance Metrics:")
+            print(f"  Train R²:     {row['train_r2']:.6f}")
+            print(f"  Test R²:      {row['test_r2']:.6f}")
+            print(f"  Test RMSE:    {row['test_rmse']:.2f}")
+            print(f"  Test MAE:     {row['test_mae']:.2f}")
+
+            # Overfitting Check
+            gap = row['train_r2'] - row['test_r2']
+            if gap > 0.10:
+                status = "⚠️  HIGH OVERFIT"
+            elif gap > 0.05:
+                status = "⚡ MODERATE OVERFIT"
+            else:
+                status = "✅ OK"
+            print(f"  Overfit Gap:  {gap:.4f} ({status})")
+
+            # Model Parameters
+            print("\n⚙️  Model Parameters:")
+            params = model.get_params()
+
+            # Group important parameters first
+            important_params = []
+            other_params = []
+
+            # Define important parameter names by model type
+            important_keys = {
+                'n_estimators', 'max_depth', 'min_samples_split', 'min_samples_leaf',
+                'learning_rate', 'max_features', 'C', 'kernel', 'gamma', 'epsilon',
+                'alpha', 'l1_ratio', 'criterion', 'splitter'
+            }
+
+            for key, value in sorted(params.items()):
+                if key in important_keys:
+                    important_params.append((key, value))
+                else:
+                    other_params.append((key, value))
+
+            # Print important parameters
+            if important_params:
+                for key, value in important_params:
+                    print(f"  {key:.<30} {value}")
+
+            # Print other parameters (collapsed)
+            if other_params and len(other_params) <= 5:
+                print("\n  Other parameters:")
+                for key, value in other_params[:5]:
+                    print(f"  {key:.<30} {value}")
+
+        print(f"\n{'=' * 80}")
+
+        # Summary comparison
+        print("\n📈 Quick Comparison (sorted by Test R²):")
+        print(f"{'─' * 80}")
+        sorted_results = self.results.sort_values('test_r2', ascending=False)
+        print(f"{'Rank':<6} {'Model':<25} {'Test R²':<12} {'Test RMSE':<15} {'Overfit':<10}")
+        print(f"{'─' * 80}")
+        for idx, (_, row) in enumerate(sorted_results.iterrows(), 1):
+            gap = row['train_r2'] - row['test_r2']
+            gap_symbol = "⚠️" if gap > 0.10 else "⚡" if gap > 0.05 else "✅"
+            print(f"{idx:<6} {row['model']:<25} {row['test_r2']:<12.6f} {row['test_rmse']:<15.2f} {gap_symbol}")
+        print(f"{'─' * 80}")
+
+    def save_detailed_report_json(self, folder="models"):
+        """Save detailed performance report with parameters as JSON."""
+        if self.results is None:
+            print("No results available. Train models first.")
+            return
+
+        os.makedirs(folder, exist_ok=True)
+
+        report = {
+            "report_type": "detailed_performance_report",
+            "models": []
+        }
+
+        for _, row in self.results.iterrows():
+            model_name = row["model"]
+            model = self.models[model_name]
+            params = model.get_params()
+
+            # Convert params for JSON serialization
+            serializable_params = {}
+            for key, value in params.items():
+                if isinstance(value, (np.integer, np.floating)):
+                    serializable_params[key] = float(value)
+                elif isinstance(value, np.ndarray):
+                    serializable_params[key] = value.tolist()
+                elif value is None or isinstance(value, (int, float, str, bool)):
+                    serializable_params[key] = value
+                else:
+                    serializable_params[key] = str(value)
+
+            # Calculate additional metrics
+            gap = float(row['train_r2'] - row['test_r2'])
+            overfit_status = "high" if gap > 0.10 else "moderate" if gap > 0.05 else "ok"
+
+            model_report = {
+                "model_name": model_name,
+                "model_type": type(model).__name__,
+                "performance_metrics": {
+                    "train_r2": float(row['train_r2']),
+                    "test_r2": float(row['test_r2']),
+                    "test_rmse": float(row['test_rmse']),
+                    "test_mae": float(row['test_mae']),
+                    "overfit_gap": gap,
+                    "overfit_status": overfit_status
+                },
+                "parameters": serializable_params
+            }
+
+            report["models"].append(model_report)
+
+        # Sort by test_r2 descending
+        report["models"] = sorted(report["models"],
+                                 key=lambda x: x["performance_metrics"]["test_r2"],
+                                 reverse=True)
+
+        # Add summary statistics
+        test_r2_values = [m["performance_metrics"]["test_r2"] for m in report["models"]]
+        report["summary"] = {
+            "best_model": report["models"][0]["model_name"],
+            "best_test_r2": report["models"][0]["performance_metrics"]["test_r2"],
+            "worst_test_r2": min(test_r2_values),
+            "mean_test_r2": float(np.mean(test_r2_values)),
+            "std_test_r2": float(np.std(test_r2_values))
+        }
+
+        # Save to JSON
+        report_path = f"{folder}/detailed_performance_report.json"
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+
+        print(f"Saved detailed performance report to {report_path}")
 
     # ========== SAVE METHODS ==========
 
@@ -127,11 +280,14 @@ class ModelTrainer:
         print(f"Saved models to {folder}/")
 
     def save_predictions_models(self, folder="predictions"):
-        """Save predictions for each model."""
+        """Save predictions for each model as JSON."""
         os.makedirs(folder, exist_ok=True)
         for name, preds in self.predictions.items():
-            path = f"{folder}/{name.lower().replace(' ', '_')}.pkl"
-            joblib.dump(preds, path)
+            path = f"{folder}/{name.lower().replace(' ', '_')}.json"
+            # Convert numpy array to list for JSON serialization
+            predictions_list = preds.tolist() if hasattr(preds, 'tolist') else list(preds)
+            with open(path, 'w') as f:
+                json.dump(predictions_list, f, indent=2)
             print(f"Saved {name} to {path}")
         print(f"\nAll predictions saved to {folder}/")
 
@@ -153,11 +309,12 @@ class ModelTrainer:
         print(f"\nAll models loaded from {folder}/")
 
     def load_predictions_models(self, folder="predictions"):
-        """Load predictions for each model."""
+        """Load predictions for each model from JSON."""
         for name in self.models.keys():
-            path = f"{folder}/{name.lower().replace(' ', '_')}.pkl"
+            path = f"{folder}/{name.lower().replace(' ', '_')}.json"
             if os.path.exists(path):
-                self.predictions[name] = joblib.load(path)
+                with open(path, 'r') as f:
+                    self.predictions[name] = np.array(json.load(f))
                 print(f"Loaded {name} from {path}")
         print(f"\nAll predictions loaded from {folder}/")
 
