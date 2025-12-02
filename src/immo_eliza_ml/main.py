@@ -92,7 +92,7 @@ def main():
     os.makedirs("plots", exist_ok=True)
     
     # Save preprocessor and models
-    prep.save("models/preprocessor.pkl")
+    prep.save("models/preprocessor.json")
     trainer.save_training_models("models")  # Save fitted models as .pkl
     trainer.save_model_params_to_json("models")  # Save model parameters as .json
     trainer.save_predictions_models("predictions")
