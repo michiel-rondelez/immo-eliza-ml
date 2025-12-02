@@ -80,6 +80,7 @@ def main():
     # ---------------------------
     trainer.summary()
     trainer.overfitting_summary()
+    trainer.detailed_performance_report()
     
     # ---------------------------
     # 7. Save artifacts
@@ -96,6 +97,7 @@ def main():
     prep.save("models/preprocessor.json")
     trainer.save_training_models("models")  # Save fitted models as .pkl
     trainer.save_model_params_to_json("models")  # Save model parameters as .json
+    trainer.save_detailed_report_json("models")  # Save detailed performance report with parameters
     trainer.save_predictions_models("predictions")
     
     # Save y values for later use
