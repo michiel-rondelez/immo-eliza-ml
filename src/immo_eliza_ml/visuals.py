@@ -47,12 +47,11 @@ class Visualizations:
             self.results = pd.read_csv(results_path)
             print(f"Loaded results from {results_path}")
 
-        # Load predictions
+        # Load predictions (pickled dicts with 'train' and 'test' arrays)
         for name in model_names:
-            path = f"{predictions_folder}/{name.lower().replace(' ', '_')}.json"
+            path = f"{predictions_folder}/{name.lower().replace(' ', '_')}.pkl"
             if os.path.exists(path):
-                with open(path, 'r') as f:
-                    self.predictions[name] = np.array(json.load(f))
+                self.predictions[name] = joblib.load(path)
                 print(f"Loaded predictions: {name}")
 
         print("\nAll data loaded!")

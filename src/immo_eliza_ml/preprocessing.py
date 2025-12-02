@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import json
+import joblib
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
@@ -210,10 +211,27 @@ class FeaturePreprocessor:
             print(f"  Percentiles:     {self.capping_percentiles}")
 
     def save(self, path):
-        """Save preprocessor config and fitted params as JSON. Simple and portable."""
+        """
+        Save preprocessor config to JSON **and** the fitted pipeline to pickle.
+
+        - JSON: configuration (features, target, capping settings)
+        - PKL:  fitted `ColumnTransformer` pipeline (used at prediction time)
+        """
         if self.pipeline is None:
             raise ValueError("Pipeline not fitted. Call fit_transform() first.")
 
+        # Derive matching .json / .pkl paths
+        if path.endswith(".json"):
+            json_path = path
+            pkl_path = path.replace(".json", ".pkl")
+        elif path.endswith(".pkl"):
+            pkl_path = path
+            json_path = path.replace(".pkl", ".json")
+        else:
+            json_path = f"{path}.json"
+            pkl_path = f"{path}.pkl"
+
+        # Lightweight, portable config
         config = {
             "features": list(self.features),
             "target": self.target,
@@ -223,111 +241,59 @@ class FeaturePreprocessor:
             "numeric": self.numeric,
             "categorical": self.categorical,
             "binary": self.binary,
-            "fitted_params": {}
         }
 
-        # Extract fitted parameters from pipeline
-        for name, transformer, columns in self.pipeline.transformers_:
-            if name == "num":
-                # Extract numeric pipeline parameters
-                imputer = transformer.named_steps["impute"]
-                scaler = transformer.named_steps["scale"]
+        # Save fitted pipeline
+        joblib.dump(self.pipeline, pkl_path)
 
-                num_params = {
-                    "imputer_statistics": imputer.statistics_.tolist(),
-                    "scaler_mean": scaler.mean_.tolist(),
-                    "scaler_scale": scaler.scale_.tolist()
-                }
-
-                # Add capper params if exists
-                if "cap" in transformer.named_steps:
-                    capper = transformer.named_steps["cap"]
-                    num_params["capper"] = capper.get_params_dict()
-
-                config["fitted_params"]["numeric"] = num_params
-
-            elif name == "cat":
-                # Extract OneHotEncoder parameters
-                imputer = transformer.named_steps["impute"]
-                encoder = transformer.named_steps["encode"]
-                config["fitted_params"]["categorical"] = {
-                    "imputer_fill_value": imputer.statistics_[0] if hasattr(imputer, "statistics_") else "Unknown",
-                    "encoder_categories": [cat.tolist() for cat in encoder.categories_]
-                }
-            elif name == "bin":
-                # Extract binary imputer parameters
-                config["fitted_params"]["binary"] = {
-                    "imputer_statistics": transformer.statistics_.tolist()
-                }
-
-        # Save to JSON
-        with open(path, 'w') as f:
+        # Save config as JSON
+        with open(json_path, "w") as f:
             json.dump(config, f, indent=2)
+
+        print(f"Saved preprocessor pipeline to {pkl_path}")
+        print(f"Saved preprocessor metadata to {json_path}")
 
     @classmethod
     def load(cls, path):
-        """Load preprocessor from JSON. Simple deserialization."""
-        with open(path, 'r') as f:
-            config = json.load(f)
+        """
+        Load preprocessor:
+        - Reads config from JSON
+        - Loads fitted pipeline from the matching .pkl file
+        """
+        # Work out matching paths
+        if path.endswith(".json"):
+            json_path = path
+            pkl_path = path.replace(".json", ".pkl")
+        elif path.endswith(".pkl"):
+            pkl_path = path
+            json_path = path.replace(".pkl", ".json")
+        else:
+            json_path = f"{path}.json"
+            pkl_path = f"{path}.pkl"
 
-        # Create instance with saved configuration
+        # Load config (if available)
+        try:
+            with open(json_path, "r") as f:
+                config = json.load(f)
+        except FileNotFoundError:
+            config = {
+                "features": list(cls.ALL_FEATURES),
+                "target": "price",
+                "log_target": True,
+                "use_capping": False,
+                "capping_percentiles": [1, 99],
+            }
+
+        # Recreate instance with same configuration
         instance = cls(
-            features=config["features"],
-            target=config["target"],
-            log_target=config["log_target"],
+            features=config.get("features", list(cls.ALL_FEATURES)),
+            target=config.get("target", "price"),
+            log_target=config.get("log_target", True),
             use_capping=config.get("use_capping", False),
-            capping_percentiles=tuple(config.get("capping_percentiles", (1, 99)))
+            capping_percentiles=tuple(config.get("capping_percentiles", (1, 99))),
         )
 
-        # Rebuild pipeline
-        transformers = []
-        fitted_params = config["fitted_params"]
+        # Load fitted pipeline
+        instance.pipeline = joblib.load(pkl_path)
 
-        if instance.numeric:
-            # Reconstruct numeric pipeline with fitted parameters
-            steps = []
-
-            # Imputer
-            imputer = SimpleImputer(strategy="median")
-            imputer.statistics_ = np.array(fitted_params["numeric"]["imputer_statistics"])
-            steps.append(("impute", imputer))
-
-            # Capper (if was used)
-            if "capper" in fitted_params["numeric"]:
-                capper = OutlierCapper()
-                capper.set_params_dict(fitted_params["numeric"]["capper"])
-                steps.append(("cap", capper))
-
-            # Scaler
-            scaler = StandardScaler()
-            scaler.mean_ = np.array(fitted_params["numeric"]["scaler_mean"])
-            scaler.scale_ = np.array(fitted_params["numeric"]["scaler_scale"])
-            scaler.n_features_in_ = len(scaler.mean_)
-            steps.append(("scale", scaler))
-
-            transformers.append(("num", Pipeline(steps), instance.numeric))
-
-        if instance.categorical:
-            # Reconstruct categorical pipeline with fitted parameters
-            imputer = SimpleImputer(strategy="constant", fill_value="Unknown")
-            if "imputer_fill_value" in fitted_params["categorical"]:
-                imputer.statistics_ = np.array([fitted_params["categorical"]["imputer_fill_value"]])
-
-            encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
-            encoder.categories_ = [np.array(cat) for cat in fitted_params["categorical"]["encoder_categories"]]
-            encoder.n_features_in_ = len(encoder.categories_)
-
-            transformers.append(("cat", Pipeline([
-                ("impute", imputer),
-                ("encode", encoder),
-            ]), instance.categorical))
-
-        if instance.binary:
-            # Reconstruct binary imputer with fitted parameters
-            imputer = SimpleImputer(strategy="constant", fill_value=0)
-            imputer.statistics_ = np.array(fitted_params["binary"]["imputer_statistics"])
-
-            transformers.append(("bin", imputer, instance.binary))
-
-        instance.pipeline = ColumnTransformer(transformers)
         return instance
