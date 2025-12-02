@@ -1,0 +1,57 @@
+{
+  "features": [
+    "region",
+    "terrace",
+    "subtype_of_property",
+    "number_of_facades",
+    "garden",
+    "area_log",
+    "luxury_score",
+    "living_area",
+    "open_fire",
+    "area_per_room",
+    "state_of_building",
+    "terrace_surface",
+    "furnished",
+    "equipped_kitchen",
+    "postal_code",
+    "total_outdoor",
+    "number_of_rooms",
+    "garden_surface",
+    "swimming_pool",
+    "outdoor_ratio"
+  ],
+  "target": "price",
+  "log_target": true,
+  "use_capping": true,
+  "capping_percentiles": [
+    1,
+    99
+  ],
+  "numeric": [
+    "terrace_surface",
+    "number_of_facades",
+    "area_per_room",
+    "area_log",
+    "luxury_score",
+    "postal_code",
+    "total_outdoor",
+    "number_of_rooms",
+    "living_area",
+    "garden_surface",
+    "outdoor_ratio"
+  ],
+  "categorical": [
+    "region",
+    "state_of_building",
+    "subtype_of_property"
+  ],
+  "binary": [
+    "terrace",
+    "furnished",
+    "garden",
+    "equipped_kitchen",
+    "open_fire",
+    "swimming_pool"
+  ]
+}
