@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import joblib
+import json
 import matplotlib.pyplot as plt
 import os
 from sklearn.linear_model import LinearRegression
@@ -159,121 +160,92 @@ class ModelTrainer:
                 self.predictions[name] = joblib.load(path)
                 print(f"Loaded {name} from {path}")
         print(f"\nAll predictions loaded from {folder}/")
-        """Create a complete visual with all models and predictions."""
+
+    # ========== JSON SAVE/LOAD METHODS ==========
+
+    def save_model_params_to_json(self, folder="models"):
+        """Save model parameters (not the fitted model) to JSON files.
+
+        This saves only the model type and hyperparameters, not the trained weights.
+        Useful for documenting model configurations and recreating model architectures.
+        """
         os.makedirs(folder, exist_ok=True)
-        n_models = len(self.predictions)
-        
-        # 1. Actual vs Predicted - All Models
-        fig, axes = plt.subplots(2, n_models, figsize=(4 * n_models, 8))
-        fig.suptitle("Actual vs Predicted - All Models", fontsize=16, fontweight='bold')
-        
-        for i, (name, preds) in enumerate(self.predictions.items()):
-            # Train
-            axes[0, i].scatter(y_train, preds["train"], alpha=0.5, s=10, c='blue')
-            axes[0, i].plot([y_train.min(), y_train.max()], [y_train.min(), y_train.max()], 'r--')
-            axes[0, i].set_title(f"{name}\n(Train)")
-            axes[0, i].set_xlabel("Actual")
-            axes[0, i].set_ylabel("Predicted")
-            
-            # Test
-            axes[1, i].scatter(y_test, preds["test"], alpha=0.5, s=10, c='green')
-            axes[1, i].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-            axes[1, i].set_title(f"{name}\n(Test)")
-            axes[1, i].set_xlabel("Actual")
-            axes[1, i].set_ylabel("Predicted")
-        
-        plt.tight_layout()
-        plt.savefig(f"{folder}/all_models_actual_vs_predicted.png", dpi=150)
-        plt.close()
-        print(f"Saved: {folder}/all_models_actual_vs_predicted.png")
 
-        # 2. Residuals - All Models
-        fig, axes = plt.subplots(2, n_models, figsize=(4 * n_models, 8))
-        fig.suptitle("Residuals - All Models", fontsize=16, fontweight='bold')
-        
-        for i, (name, preds) in enumerate(self.predictions.items()):
-            train_res = y_train - preds["train"]
-            test_res = y_test - preds["test"]
-            
-            # Train
-            axes[0, i].scatter(preds["train"], train_res, alpha=0.5, s=10, c='blue')
-            axes[0, i].axhline(y=0, color='r', linestyle='--')
-            axes[0, i].set_title(f"{name}\n(Train)")
-            axes[0, i].set_xlabel("Predicted")
-            axes[0, i].set_ylabel("Residual")
-            
-            # Test
-            axes[1, i].scatter(preds["test"], test_res, alpha=0.5, s=10, c='green')
-            axes[1, i].axhline(y=0, color='r', linestyle='--')
-            axes[1, i].set_title(f"{name}\n(Test)")
-            axes[1, i].set_xlabel("Predicted")
-            axes[1, i].set_ylabel("Residual")
-        
-        plt.tight_layout()
-        plt.savefig(f"{folder}/all_models_residuals.png", dpi=150)
-        plt.close()
-        print(f"Saved: {folder}/all_models_residuals.png")
+        for name, model in self.models.items():
+            # Get model parameters
+            params = model.get_params()
 
-        # 3. Error Distribution - All Models
-        fig, axes = plt.subplots(2, n_models, figsize=(4 * n_models, 8))
-        fig.suptitle("Error Distribution - All Models", fontsize=16, fontweight='bold')
-        
-        for i, (name, preds) in enumerate(self.predictions.items()):
-            train_res = y_train - preds["train"]
-            test_res = y_test - preds["test"]
-            
-            # Train
-            axes[0, i].hist(train_res, bins=30, edgecolor='black', alpha=0.7, color='blue')
-            axes[0, i].axvline(x=0, color='r', linestyle='--')
-            axes[0, i].set_title(f"{name}\n(Train) μ={train_res.mean():.3f}")
-            axes[0, i].set_xlabel("Error")
-            axes[0, i].set_ylabel("Frequency")
-            
-            # Test
-            axes[1, i].hist(test_res, bins=30, edgecolor='black', alpha=0.7, color='green')
-            axes[1, i].axvline(x=0, color='r', linestyle='--')
-            axes[1, i].set_title(f"{name}\n(Test) μ={test_res.mean():.3f}")
-            axes[1, i].set_xlabel("Error")
-            axes[1, i].set_ylabel("Frequency")
-        
-        plt.tight_layout()
-        plt.savefig(f"{folder}/all_models_error_distribution.png", dpi=150)
-        plt.close()
-        print(f"Saved: {folder}/all_models_error_distribution.png")
+            # Convert numpy types to Python native types for JSON serialization
+            serializable_params = {}
+            for key, value in params.items():
+                if isinstance(value, (np.integer, np.floating)):
+                    serializable_params[key] = float(value)
+                elif isinstance(value, np.ndarray):
+                    serializable_params[key] = value.tolist()
+                elif value is None or isinstance(value, (int, float, str, bool)):
+                    serializable_params[key] = value
+                else:
+                    # For complex objects, store as string
+                    serializable_params[key] = str(value)
 
-        # 4. Model Comparison Bar Chart
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-        fig.suptitle("Model Comparison", fontsize=16, fontweight='bold')
-        
-        names = []
-        r2_scores = []
-        rmse_scores = []
-        mae_scores = []
-        
-        for name, preds in self.predictions.items():
-            names.append(name)
-            r2_scores.append(r2_score(y_test, preds["test"]))
-            rmse_scores.append(np.sqrt(mean_squared_error(y_test, preds["test"])))
-            mae_scores.append(mean_absolute_error(y_test, preds["test"]))
-        
-        colors = ['steelblue', 'coral', 'seagreen', 'gold', 'purple']
-        
-        axes[0].bar(names, r2_scores, color=colors)
-        axes[0].set_title("R² Score (higher is better)")
-        axes[0].tick_params(axis='x', rotation=45)
-        axes[0].set_ylim(min(r2_scores) - 0.05, max(r2_scores) + 0.05)
-        
-        axes[1].bar(names, rmse_scores, color=colors)
-        axes[1].set_title("RMSE (lower is better)")
-        axes[1].tick_params(axis='x', rotation=45)
-        
-        axes[2].bar(names, mae_scores, color=colors)
-        axes[2].set_title("MAE (lower is better)")
-        axes[2].tick_params(axis='x', rotation=45)
-        
-        plt.tight_layout()
-        plt.savefig(f"{folder}/model_comparison.png", dpi=150)
-        plt.close()
-        print(f"Saved: {folder}/model_comparison.png")
+            # Create model config with type and parameters
+            model_config = {
+                "model_type": type(model).__name__,
+                "model_name": name,
+                "parameters": serializable_params
+            }
 
-        print(f"\nAll plots saved to {folder}/")
+            # Save to JSON
+            json_path = f"{folder}/{name.lower().replace(' ', '_')}_params.json"
+            with open(json_path, 'w') as f:
+                json.dump(model_config, f, indent=2)
+
+            print(f"Saved {name} parameters to {json_path}")
+
+        print(f"\nAll model parameters saved to {folder}/")
+
+    def load_model_params_from_json(self, folder="models"):
+        """Load model parameters from JSON files and recreate models.
+
+        Note: This recreates the model architecture but does NOT restore trained weights.
+        To use trained models, you still need to load the .pkl files using load_training_models().
+        """
+        # Mapping of model type names to classes
+        model_classes = {
+            "LinearRegression": LinearRegression,
+            "SVR": SVR,
+            "DecisionTreeRegressor": DecisionTreeRegressor,
+            "RandomForestRegressor": RandomForestRegressor,
+            "XGBRegressor": XGBRegressor,
+        }
+
+        loaded_models = {}
+
+        for name in list(self.models.keys()):
+            json_path = f"{folder}/{name.lower().replace(' ', '_')}_params.json"
+
+            if os.path.exists(json_path):
+                with open(json_path, 'r') as f:
+                    model_config = json.load(f)
+
+                model_type = model_config["model_type"]
+                params = model_config["parameters"]
+
+                # Get the model class
+                if model_type in model_classes:
+                    model_class = model_classes[model_type]
+
+                    # Create new model instance with loaded parameters
+                    loaded_models[name] = model_class(**params)
+                    print(f"Loaded {name} parameters from {json_path}")
+                else:
+                    print(f"Warning: Unknown model type '{model_type}' for {name}")
+            else:
+                print(f"Warning: File not found: {json_path}")
+
+        if loaded_models:
+            self.models.update(loaded_models)
+            print(f"\nModel architectures recreated from {folder}/")
+            print("Note: Models need to be retrained or load fitted .pkl files to make predictions")
+
+        return loaded_models

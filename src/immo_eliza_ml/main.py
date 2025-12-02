@@ -93,7 +93,8 @@ def main():
     
     # Save preprocessor and models
     prep.save("models/preprocessor.pkl")
-    trainer.save_training_models("models")
+    trainer.save_training_models("models")  # Save fitted models as .pkl
+    trainer.save_model_params_to_json("models")  # Save model parameters as .json
     trainer.save_predictions_models("predictions")
     
     # Save y values for later use
