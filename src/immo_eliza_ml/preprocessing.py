@@ -5,6 +5,45 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from sklearn.base import BaseEstimator, TransformerMixin
+
+
+class OutlierCapper(BaseEstimator, TransformerMixin):
+    """Cap outliers to percentile limits. Simple and reusable."""
+
+    def __init__(self, lower_percentile=1, upper_percentile=99):
+        self.lower_percentile = lower_percentile
+        self.upper_percentile = upper_percentile
+        self.lower_bounds_ = None
+        self.upper_bounds_ = None
+
+    def fit(self, X, y=None):
+        """Learn percentile bounds from data."""
+        self.lower_bounds_ = np.percentile(X, self.lower_percentile, axis=0)
+        self.upper_bounds_ = np.percentile(X, self.upper_percentile, axis=0)
+        return self
+
+    def transform(self, X):
+        """Cap values to learned bounds."""
+        X_capped = np.clip(X, self.lower_bounds_, self.upper_bounds_)
+        return X_capped
+
+    def get_params_dict(self):
+        """Get parameters as dict for JSON serialization."""
+        return {
+            "lower_percentile": self.lower_percentile,
+            "upper_percentile": self.upper_percentile,
+            "lower_bounds": self.lower_bounds_.tolist() if self.lower_bounds_ is not None else None,
+            "upper_bounds": self.upper_bounds_.tolist() if self.upper_bounds_ is not None else None
+        }
+
+    def set_params_dict(self, params):
+        """Set parameters from dict (for loading from JSON)."""
+        self.lower_percentile = params["lower_percentile"]
+        self.upper_percentile = params["upper_percentile"]
+        self.lower_bounds_ = np.array(params["lower_bounds"]) if params["lower_bounds"] else None
+        self.upper_bounds_ = np.array(params["upper_bounds"]) if params["upper_bounds"] else None
+        return self
 
 
 def get_region(postal_code):
@@ -29,17 +68,19 @@ def get_region(postal_code):
 
 class FeaturePreprocessor:
     """
-    Auto-detects feature types and applies correct pipeline.
-    
+    Simple, reusable preprocessing pipeline. API-ready.
+
     Usage:
-        # Select features - pipeline auto-assigned
+        # Basic usage
+        prep = FeaturePreprocessor()
+
+        # Custom features with capping
         prep = FeaturePreprocessor(
             features=["living_area", "region", "swimming_pool"],
-            target="price"
+            target="price",
+            use_capping=True,
+            capping_percentiles=(1, 99)
         )
-        
-        # All features (default)
-        prep = FeaturePreprocessor()
     """
 
     # Feature type definitions
@@ -52,15 +93,28 @@ class FeaturePreprocessor:
 
     CATEGORICAL = {"subtype_of_property", "state_of_building", "region"}
 
-    BINARY = {"equipped_kitchen", "furnished", "open_fire", 
+    BINARY = {"equipped_kitchen", "furnished", "open_fire",
               "terrace", "garden", "swimming_pool"}
 
     ALL_FEATURES = NUMERIC | CATEGORICAL | BINARY
 
-    def __init__(self, features=None, target="price", log_target=True):
+    def __init__(self, features=None, target="price", log_target=True,
+                 use_capping=True, capping_percentiles=(1, 99)):
+        """
+        Initialize preprocessor.
+
+        Args:
+            features: List of features to use (default: all)
+            target: Target variable name
+            log_target: Apply log transform to target
+            use_capping: Cap outliers in numeric features
+            capping_percentiles: (lower, upper) percentiles for capping
+        """
         self.features = set(features) if features else self.ALL_FEATURES
         self.target = target
         self.log_target = log_target
+        self.use_capping = use_capping
+        self.capping_percentiles = capping_percentiles
         self.pipeline = None
 
         # Auto-assign features to correct type
@@ -92,14 +146,24 @@ class FeaturePreprocessor:
         return df
 
     def _build_pipeline(self):
-        """Build pipeline based on detected feature types."""
+        """Build pipeline based on config. Simple and modular."""
         transformers = []
 
         if self.numeric:
-            transformers.append(("num", Pipeline([
-                ("impute", SimpleImputer(strategy="median")),
-                ("scale", StandardScaler()),
-            ]), self.numeric))
+            # Build numeric pipeline steps
+            steps = [("impute", SimpleImputer(strategy="median"))]
+
+            # Add capping if enabled
+            if self.use_capping:
+                steps.append(("cap", OutlierCapper(
+                    lower_percentile=self.capping_percentiles[0],
+                    upper_percentile=self.capping_percentiles[1]
+                )))
+
+            # Always scale last
+            steps.append(("scale", StandardScaler()))
+
+            transformers.append(("num", Pipeline(steps), self.numeric))
 
         if self.categorical:
             transformers.append(("cat", Pipeline([
@@ -108,8 +172,8 @@ class FeaturePreprocessor:
             ]), self.categorical))
 
         if self.binary:
-            transformers.append(("bin", 
-                SimpleImputer(strategy="constant", fill_value=0), 
+            transformers.append(("bin",
+                SimpleImputer(strategy="constant", fill_value=0),
                 self.binary))
 
         return ColumnTransformer(transformers)
@@ -136,14 +200,17 @@ class FeaturePreprocessor:
         return list(self.pipeline.get_feature_names_out())
 
     def info(self):
-        """Show which features go to which pipeline."""
+        """Show pipeline configuration."""
         print(f"Numeric ({len(self.numeric)}):     {self.numeric}")
         print(f"Categorical ({len(self.categorical)}): {self.categorical}")
         print(f"Binary ({len(self.binary)}):      {self.binary}")
         print(f"Target:            {self.target} (log={self.log_target})")
+        print(f"Outlier Capping:   {self.use_capping}")
+        if self.use_capping:
+            print(f"  Percentiles:     {self.capping_percentiles}")
 
     def save(self, path):
-        """Save preprocessor configuration and fitted parameters as JSON."""
+        """Save preprocessor config and fitted params as JSON. Simple and portable."""
         if self.pipeline is None:
             raise ValueError("Pipeline not fitted. Call fit_transform() first.")
 
@@ -151,6 +218,8 @@ class FeaturePreprocessor:
             "features": list(self.features),
             "target": self.target,
             "log_target": self.log_target,
+            "use_capping": self.use_capping,
+            "capping_percentiles": list(self.capping_percentiles),
             "numeric": self.numeric,
             "categorical": self.categorical,
             "binary": self.binary,
@@ -160,14 +229,23 @@ class FeaturePreprocessor:
         # Extract fitted parameters from pipeline
         for name, transformer, columns in self.pipeline.transformers_:
             if name == "num":
-                # Extract StandardScaler parameters
+                # Extract numeric pipeline parameters
                 imputer = transformer.named_steps["impute"]
                 scaler = transformer.named_steps["scale"]
-                config["fitted_params"]["numeric"] = {
+
+                num_params = {
                     "imputer_statistics": imputer.statistics_.tolist(),
                     "scaler_mean": scaler.mean_.tolist(),
                     "scaler_scale": scaler.scale_.tolist()
                 }
+
+                # Add capper params if exists
+                if "cap" in transformer.named_steps:
+                    capper = transformer.named_steps["cap"]
+                    num_params["capper"] = capper.get_params_dict()
+
+                config["fitted_params"]["numeric"] = num_params
+
             elif name == "cat":
                 # Extract OneHotEncoder parameters
                 imputer = transformer.named_steps["impute"]
@@ -188,7 +266,7 @@ class FeaturePreprocessor:
 
     @classmethod
     def load(cls, path):
-        """Load preprocessor from JSON and reconstruct pipeline."""
+        """Load preprocessor from JSON. Simple deserialization."""
         with open(path, 'r') as f:
             config = json.load(f)
 
@@ -196,7 +274,9 @@ class FeaturePreprocessor:
         instance = cls(
             features=config["features"],
             target=config["target"],
-            log_target=config["log_target"]
+            log_target=config["log_target"],
+            use_capping=config.get("use_capping", False),
+            capping_percentiles=tuple(config.get("capping_percentiles", (1, 99)))
         )
 
         # Rebuild pipeline
@@ -205,18 +285,27 @@ class FeaturePreprocessor:
 
         if instance.numeric:
             # Reconstruct numeric pipeline with fitted parameters
+            steps = []
+
+            # Imputer
             imputer = SimpleImputer(strategy="median")
             imputer.statistics_ = np.array(fitted_params["numeric"]["imputer_statistics"])
+            steps.append(("impute", imputer))
 
+            # Capper (if was used)
+            if "capper" in fitted_params["numeric"]:
+                capper = OutlierCapper()
+                capper.set_params_dict(fitted_params["numeric"]["capper"])
+                steps.append(("cap", capper))
+
+            # Scaler
             scaler = StandardScaler()
             scaler.mean_ = np.array(fitted_params["numeric"]["scaler_mean"])
             scaler.scale_ = np.array(fitted_params["numeric"]["scaler_scale"])
             scaler.n_features_in_ = len(scaler.mean_)
+            steps.append(("scale", scaler))
 
-            transformers.append(("num", Pipeline([
-                ("impute", imputer),
-                ("scale", scaler),
-            ]), instance.numeric))
+            transformers.append(("num", Pipeline(steps), instance.numeric))
 
         if instance.categorical:
             # Reconstruct categorical pipeline with fitted parameters
