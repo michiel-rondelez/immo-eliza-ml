@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import joblib
+import json
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
@@ -143,8 +143,102 @@ class FeaturePreprocessor:
         print(f"Target:            {self.target} (log={self.log_target})")
 
     def save(self, path):
-        joblib.dump(self, path)
+        """Save preprocessor configuration and fitted parameters as JSON."""
+        if self.pipeline is None:
+            raise ValueError("Pipeline not fitted. Call fit_transform() first.")
+
+        config = {
+            "features": list(self.features),
+            "target": self.target,
+            "log_target": self.log_target,
+            "numeric": self.numeric,
+            "categorical": self.categorical,
+            "binary": self.binary,
+            "fitted_params": {}
+        }
+
+        # Extract fitted parameters from pipeline
+        for name, transformer, columns in self.pipeline.transformers_:
+            if name == "num":
+                # Extract StandardScaler parameters
+                imputer = transformer.named_steps["impute"]
+                scaler = transformer.named_steps["scale"]
+                config["fitted_params"]["numeric"] = {
+                    "imputer_statistics": imputer.statistics_.tolist(),
+                    "scaler_mean": scaler.mean_.tolist(),
+                    "scaler_scale": scaler.scale_.tolist()
+                }
+            elif name == "cat":
+                # Extract OneHotEncoder parameters
+                imputer = transformer.named_steps["impute"]
+                encoder = transformer.named_steps["encode"]
+                config["fitted_params"]["categorical"] = {
+                    "imputer_fill_value": imputer.statistics_[0] if hasattr(imputer, "statistics_") else "Unknown",
+                    "encoder_categories": [cat.tolist() for cat in encoder.categories_]
+                }
+            elif name == "bin":
+                # Extract binary imputer parameters
+                config["fitted_params"]["binary"] = {
+                    "imputer_statistics": transformer.statistics_.tolist()
+                }
+
+        # Save to JSON
+        with open(path, 'w') as f:
+            json.dump(config, f, indent=2)
 
     @classmethod
     def load(cls, path):
-        return joblib.load(path)
+        """Load preprocessor from JSON and reconstruct pipeline."""
+        with open(path, 'r') as f:
+            config = json.load(f)
+
+        # Create instance with saved configuration
+        instance = cls(
+            features=config["features"],
+            target=config["target"],
+            log_target=config["log_target"]
+        )
+
+        # Rebuild pipeline
+        transformers = []
+        fitted_params = config["fitted_params"]
+
+        if instance.numeric:
+            # Reconstruct numeric pipeline with fitted parameters
+            imputer = SimpleImputer(strategy="median")
+            imputer.statistics_ = np.array(fitted_params["numeric"]["imputer_statistics"])
+
+            scaler = StandardScaler()
+            scaler.mean_ = np.array(fitted_params["numeric"]["scaler_mean"])
+            scaler.scale_ = np.array(fitted_params["numeric"]["scaler_scale"])
+            scaler.n_features_in_ = len(scaler.mean_)
+
+            transformers.append(("num", Pipeline([
+                ("impute", imputer),
+                ("scale", scaler),
+            ]), instance.numeric))
+
+        if instance.categorical:
+            # Reconstruct categorical pipeline with fitted parameters
+            imputer = SimpleImputer(strategy="constant", fill_value="Unknown")
+            if "imputer_fill_value" in fitted_params["categorical"]:
+                imputer.statistics_ = np.array([fitted_params["categorical"]["imputer_fill_value"]])
+
+            encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+            encoder.categories_ = [np.array(cat) for cat in fitted_params["categorical"]["encoder_categories"]]
+            encoder.n_features_in_ = len(encoder.categories_)
+
+            transformers.append(("cat", Pipeline([
+                ("impute", imputer),
+                ("encode", encoder),
+            ]), instance.categorical))
+
+        if instance.binary:
+            # Reconstruct binary imputer with fitted parameters
+            imputer = SimpleImputer(strategy="constant", fill_value=0)
+            imputer.statistics_ = np.array(fitted_params["binary"]["imputer_statistics"])
+
+            transformers.append(("bin", imputer, instance.binary))
+
+        instance.pipeline = ColumnTransformer(transformers)
+        return instance

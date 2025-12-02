@@ -6,6 +6,7 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
+from .preprocessing import FeaturePreprocessor
 
 
 class Predict:
@@ -29,7 +30,7 @@ class Predict:
         "subtype_of_property": "house",
     }
 
-    def __init__(self, models_folder="models", preprocessor_path="models/preprocessor.pkl"):
+    def __init__(self, models_folder="models", preprocessor_path="models/preprocessor.json"):
         self.models = {}
         self.preprocessor = None
         self.models_folder = models_folder
@@ -46,7 +47,7 @@ class Predict:
         """Load preprocessor and all trained models."""
         # Load preprocessor
         if os.path.exists(self.preprocessor_path):
-            self.preprocessor = joblib.load(self.preprocessor_path)
+            self.preprocessor = FeaturePreprocessor.load(self.preprocessor_path)
             print(f"Loaded preprocessor from {self.preprocessor_path}")
         else:
             print(f"Warning: Preprocessor not found at {self.preprocessor_path}")
