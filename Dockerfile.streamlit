@@ -1,0 +1,45 @@
+# Dockerfile for Streamlit App
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN pip install --no-cache-dir poetry
+
+# Configure Poetry to not create virtualenv
+RUN poetry config virtualenvs.create false
+
+# Copy dependency files
+COPY pyproject.toml ./
+COPY poetry.lock* ./
+COPY requirements.txt* ./
+
+# Install dependencies (prefer poetry, fallback to pip)
+RUN if [ -f poetry.lock ]; then \
+        poetry install --no-dev --no-interaction --no-ansi; \
+    elif [ -f requirements.txt ]; then \
+        pip install --no-cache-dir -r requirements.txt; \
+    else \
+        poetry install --no-dev --no-interaction --no-ansi; \
+    fi
+
+# Copy application code
+COPY . .
+
+# Expose Streamlit port
+EXPOSE 8501
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+# Run Streamlit app
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+
