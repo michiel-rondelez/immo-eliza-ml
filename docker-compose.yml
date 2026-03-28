@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Streamlit Web App
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: immo-eliza-streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./models:/app/models:ro  # Mount models as read-only
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # FastAPI REST API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: immo-eliza-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models:ro  # Mount models as read-only
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+

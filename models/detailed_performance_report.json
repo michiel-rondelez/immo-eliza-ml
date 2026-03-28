@@ -1,0 +1,168 @@
+{
+  "report_type": "detailed_performance_report",
+  "models": [
+    {
+      "model_name": "XGBoost",
+      "model_type": "XGBRegressor",
+      "performance_metrics": {
+        "train_r2": 0.8069737230762813,
+        "test_r2": 0.7290063750343845,
+        "test_rmse": 0.28775682307303607,
+        "test_mae": 0.21379260551325593,
+        "overfit_gap": 0.07796734804189687,
+        "overfit_status": "moderate"
+      },
+      "parameters": {
+        "objective": "reg:squarederror",
+        "base_score": null,
+        "booster": null,
+        "callbacks": null,
+        "colsample_bylevel": null,
+        "colsample_bynode": null,
+        "colsample_bytree": 0.8,
+        "device": null,
+        "early_stopping_rounds": null,
+        "enable_categorical": false,
+        "eval_metric": null,
+        "feature_types": null,
+        "feature_weights": null,
+        "gamma": null,
+        "grow_policy": null,
+        "importance_type": null,
+        "interaction_constraints": null,
+        "learning_rate": 0.05,
+        "max_bin": null,
+        "max_cat_threshold": null,
+        "max_cat_to_onehot": null,
+        "max_delta_step": null,
+        "max_depth": 4,
+        "max_leaves": null,
+        "min_child_weight": null,
+        "missing": NaN,
+        "monotone_constraints": null,
+        "multi_strategy": null,
+        "n_estimators": 200,
+        "n_jobs": null,
+        "num_parallel_tree": null,
+        "random_state": 42,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1.0,
+        "sampling_method": null,
+        "scale_pos_weight": null,
+        "subsample": 0.8,
+        "tree_method": null,
+        "validate_parameters": null,
+        "verbosity": 0
+      }
+    },
+    {
+      "model_name": "SVR",
+      "model_type": "SVR",
+      "performance_metrics": {
+        "train_r2": 0.8150439485030172,
+        "test_r2": 0.6992034705190029,
+        "test_rmse": 0.3031674029939345,
+        "test_mae": 0.22433782525891877,
+        "overfit_gap": 0.11584047798401431,
+        "overfit_status": "high"
+      },
+      "parameters": {
+        "C": 1.0,
+        "cache_size": 200,
+        "coef0": 0.0,
+        "degree": 3,
+        "epsilon": 0.1,
+        "gamma": "scale",
+        "kernel": "rbf",
+        "max_iter": -1,
+        "shrinking": true,
+        "tol": 0.001,
+        "verbose": false
+      }
+    },
+    {
+      "model_name": "Linear Regression",
+      "model_type": "LinearRegression",
+      "performance_metrics": {
+        "train_r2": 0.7116117494491299,
+        "test_r2": 0.6722564145638643,
+        "test_rmse": 0.3164558971424728,
+        "test_mae": 0.2352927265427029,
+        "overfit_gap": 0.03935533488526555,
+        "overfit_status": "ok"
+      },
+      "parameters": {
+        "copy_X": true,
+        "fit_intercept": true,
+        "n_jobs": null,
+        "positive": false,
+        "tol": 1e-06
+      }
+    },
+    {
+      "model_name": "Random Forest",
+      "model_type": "RandomForestRegressor",
+      "performance_metrics": {
+        "train_r2": 0.7385039224464884,
+        "test_r2": 0.6432265441135919,
+        "test_rmse": 0.3301736117673248,
+        "test_mae": 0.2444368372836224,
+        "overfit_gap": 0.09527737833289651,
+        "overfit_status": "moderate"
+      },
+      "parameters": {
+        "bootstrap": true,
+        "ccp_alpha": 0.0,
+        "criterion": "squared_error",
+        "max_depth": 10,
+        "max_features": "sqrt",
+        "max_leaf_nodes": null,
+        "max_samples": null,
+        "min_impurity_decrease": 0.0,
+        "min_samples_leaf": 5,
+        "min_samples_split": 10,
+        "min_weight_fraction_leaf": 0.0,
+        "monotonic_cst": null,
+        "n_estimators": 200,
+        "n_jobs": null,
+        "oob_score": false,
+        "random_state": 42,
+        "verbose": 0,
+        "warm_start": false
+      }
+    },
+    {
+      "model_name": "Decision Tree",
+      "model_type": "DecisionTreeRegressor",
+      "performance_metrics": {
+        "train_r2": 0.6997548286203166,
+        "test_r2": 0.5836165985489176,
+        "test_rmse": 0.356691530429617,
+        "test_mae": 0.26850057561037277,
+        "overfit_gap": 0.116138230071399,
+        "overfit_status": "high"
+      },
+      "parameters": {
+        "ccp_alpha": 0.0,
+        "criterion": "squared_error",
+        "max_depth": 8,
+        "max_features": null,
+        "max_leaf_nodes": null,
+        "min_impurity_decrease": 0.0,
+        "min_samples_leaf": 10,
+        "min_samples_split": 20,
+        "min_weight_fraction_leaf": 0.0,
+        "monotonic_cst": null,
+        "random_state": 42,
+        "splitter": "best"
+      }
+    }
+  ],
+  "summary": {
+    "best_model": "XGBoost",
+    "best_test_r2": 0.7290063750343845,
+    "worst_test_r2": 0.5836165985489176,
+    "mean_test_r2": 0.6654618805559522,
+    "std_test_r2": 0.04983096173596253
+  }
+}
